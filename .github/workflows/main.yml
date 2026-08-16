@@ -28,7 +28,6 @@ jobs:
           mkdir -p app/src/main/java/com/lto/translate
           mkdir -p app/src/main/res/layout
 
-          # Generar clave de depuración estándar
           keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
           cat << 'EOF' > gradle.properties
@@ -106,6 +105,24 @@ jobs:
           }
           EOF
 
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:gravity="center"
+              android:orientation="vertical"
+              android:padding="16dp">
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="¡LTO Translate iniciado con éxito!"
+                  android:textSize="18sp"
+                  android:textStyle="bold" />
+          </LinearLayout>
+          EOF
+
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.lto.translate">
@@ -116,7 +133,7 @@ jobs:
                   android:allowBackup="true"
                   android:label="LTO Translate"
                   android:supportsRtl="true"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -135,6 +152,7 @@ jobs:
           class MainActivity : AppCompatActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
               }
           }
           EOF
