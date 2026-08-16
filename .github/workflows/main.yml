@@ -23,10 +23,13 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Generar estructura y compilar APK
+      - name: Generar clave de firma y compilar APK
         run: |
           mkdir -p app/src/main/java/com/lto/translate
           mkdir -p app/src/main/res/layout
+
+          # Generar clave de depuración estándar
+          keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
@@ -64,11 +67,28 @@ jobs:
 
               defaultConfig {
                   applicationId "com.lto.translate"
-                  minSdk 29
+                  minSdk 24
                   targetSdk 34
                   versionCode 1
                   versionName "1.0"
               }
+
+              signingConfigs {
+                  debug {
+                      storeFile file('debug.keystore')
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
+
+              buildTypes {
+                  debug {
+                      signingConfig signingConfigs.debug
+                      debuggable true
+                  }
+              }
+
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
