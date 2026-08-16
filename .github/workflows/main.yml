@@ -27,6 +27,7 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/lto/translate
           mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
 
           keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
@@ -112,14 +113,111 @@ jobs:
               android:layout_height="match_parent"
               android:gravity="center"
               android:orientation="vertical"
-              android:padding="16dp">
+              android:padding="24dp"
+              android:background="#F5F5F7">
 
               <TextView
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
-                  android:text="¡LTO Translate iniciado con éxito!"
-                  android:textSize="18sp"
-                  android:textStyle="bold" />
+                  android:text="Live Translate Overlay (LTO)"
+                  android:textColor="#1D1D1F"
+                  android:textSize="22sp"
+                  android:textStyle="bold"
+                  android:layout_marginBottom="12dp" />
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Concede el permiso de superposición para activar el widget flotante."
+                  android:textColor="#6E6E73"
+                  android:textSize="14sp"
+                  android:gravity="center"
+                  android:layout_marginBottom="24dp" />
+
+              <Button
+                  android:id="@+id/btnStartOverlay"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:text="Activar Widget Flotante"
+                  android:backgroundTint="#007AFF"
+                  android:textColor="#FFFFFF"
+                  android:padding="12dp" />
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/overlay_bubble.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content">
+
+              <!-- Menú Desplegado -->
+              <LinearLayout
+                  android:id="@+id/menuLayout"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:background="#CC000000"
+                  android:padding="8dp"
+                  android:visibility="gone"
+                  android:gravity="center_vertical">
+
+                  <Button
+                      android:id="@+id/btnAudioMode"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="🎙️ Audio"
+                      android:textSize="12sp"
+                      android:layout_marginEnd="4dp" />
+
+                  <Button
+                      android:id="@+id/btnScreenMode"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="📷 Pantalla"
+                      android:textSize="12sp"
+                      android:layout_marginEnd="4dp" />
+
+                  <Button
+                      android:id="@+id/btnSettings"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="⚙️ Config"
+                      android:textSize="12sp" />
+              </LinearLayout>
+
+              <!-- Burbuja Flotante -->
+              <TextView
+                  android:id="@+id/bubbleIcon"
+                  android:layout_width="56dp"
+                  android:layout_height="56dp"
+                  android:background="#007AFF"
+                  android:text="🌐"
+                  android:textSize="24sp"
+                  android:gravity="center"
+                  android:textColor="#FFFFFF" />
+          </FrameLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/overlay_subtitles.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:background="#B3000000"
+              android:padding="12dp"
+              android:gravity="center"
+              android:orientation="vertical">
+
+              <TextView
+                  android:id="@+id/txtSubtitles"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Subtítulos en tiempo real activados..."
+                  android:textColor="#FFFFFF"
+                  android:textSize="16sp"
+                  android:textStyle="bold"
+                  android:gravity="center" />
           </LinearLayout>
           EOF
 
@@ -127,32 +225,238 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.lto.translate">
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
               <uses-permission android:name="android.permission.INTERNET" />
+
               <application
                   android:allowBackup="true"
                   android:label="LTO Translate"
                   android:supportsRtl="true"
                   android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+
+                  <service
+                      android:name=".OverlayService"
+                      android:enabled="true"
+                      android:exported="false" />
               </application>
           </manifest>
           EOF
 
+          cat << 'EOF' > app/src/main/java/com/lto/translate/OverlayService.kt
+          package com.lto.translate
+
+          import android.app.Service
+          import android.content.Intent
+          import android.graphics.PixelFormat
+          import android.os.Build
+          import android.os.IBinder
+          import android.view.Gravity
+          import android.view.LayoutInflater
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.WindowManager
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import android.widget.Toast
+
+          class OverlayService : Service() {
+
+              private lateinit var windowManager: WindowManager
+              private lateinit var overlayView: View
+              private lateinit var subtitleView: View
+
+              private var isMenuExpanded = false
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+                  setupBubbleOverlay()
+                  setupSubtitleOverlay()
+              }
+
+              private fun setupBubbleOverlay() {
+                  overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_bubble, null)
+
+                  val layoutParamsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                  } else {
+                      @Suppress("DEPRECATION")
+                      WindowManager.LayoutParams.TYPE_PHONE
+                  }
+
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      layoutParamsType,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.START
+                      x = 100
+                      y = 300
+                  }
+
+                  val bubbleIcon = overlayView.findViewById<TextView>(R.id.bubbleIcon)
+                  val menuLayout = overlayView.findViewById<LinearLayout>(R.id.menuLayout)
+
+                  val btnAudioMode = overlayView.findViewById<Button>(R.id.btnAudioMode)
+                  val btnScreenMode = overlayView.findViewById<Button>(R.id.btnScreenMode)
+                  val btnSettings = overlayView.findViewById<Button>(R.id.btnSettings)
+
+                  // Drag & Drop / Tap Listener
+                  bubbleIcon.setOnTouchListener(object : View.OnTouchListener {
+                      private var initialX = 0
+                      private var initialY = 0
+                      private var initialTouchX = 0f
+                      private var initialTouchY = 0f
+
+                      override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                          when (event.action) {
+                              MotionEvent.ACTION_DOWN -> {
+                                  initialX = params.x
+                                  initialY = params.y
+                                  initialTouchX = event.rawX
+                                  initialTouchY = event.rawY
+                                  return true
+                              }
+                              MotionEvent.ACTION_MOVE -> {
+                                  params.x = initialX + (event.rawX - initialTouchX).toInt()
+                                  params.y = initialY + (event.rawY - initialTouchY).toInt()
+                                  windowManager.updateViewLayout(overlayView, params)
+                                  return true
+                              }
+                              MotionEvent.ACTION_UP -> {
+                                  val diffX = Math.abs(event.rawX - initialTouchX)
+                                  val diffY = Math.abs(event.rawY - initialTouchY)
+                                  if (diffX < 10 && diffY < 10) {
+                                      // Click detectado
+                                      isMenuExpanded = !isMenuExpanded
+                                      menuLayout.visibility = if (isMenuExpanded) View.VISIBLE else View.GONE
+                                  }
+                                  return true
+                              }
+                          }
+                          return false
+                      }
+                  })
+
+                  btnAudioMode.setOnClickListener {
+                      subtitleView.visibility = if (subtitleView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                      Toast.makeText(this, "Modo Audio alternado", Toast.LENGTH_SHORT).show()
+                  }
+
+                  btnScreenMode.setOnClickListener {
+                      Toast.makeText(this, "Escaneando pantalla (OCR)...", Toast.LENGTH_SHORT).show()
+                  }
+
+                  btnSettings.setOnClickListener {
+                      Toast.makeText(this, "Configuración rápida", Toast.LENGTH_SHORT).show()
+                  }
+
+                  windowManager.addView(overlayView, params)
+              }
+
+              private fun setupSubtitleOverlay() {
+                  subtitleView = LayoutInflater.from(this).inflate(R.layout.overlay_subtitles, null)
+
+                  val layoutParamsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                  } else {
+                      @Suppress("DEPRECATION")
+                      WindowManager.LayoutParams.TYPE_PHONE
+                  }
+
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      layoutParamsType,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.BOTTOM
+                      y = 100
+                  }
+
+                  subtitleView.visibility = View.GONE
+                  windowManager.addView(subtitleView, params)
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  if (::overlayView.isInitialized) windowManager.removeView(overlayView)
+                  if (::subtitleView.isInitialized) windowManager.removeView(subtitleView)
+              }
+          }
+          EOF
+
           cat << 'EOF' > app/src/main/java/com/lto/translate/MainActivity.kt
           package com.lto.translate
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
           import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import android.widget.Toast
           import androidx.appcompat.app.AppCompatActivity
 
           class MainActivity : AppCompatActivity() {
+
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   setContentView(R.layout.activity_main)
+
+                  val btnStartOverlay = findViewById<Button>(R.id.btnStartOverlay)
+
+                  btnStartOverlay.setOnClickListener {
+                      checkOverlayPermission()
+                  }
+              }
+
+              private fun checkOverlayPermission() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      if (!Settings.canDrawOverlays(this)) {
+                          val intent = Intent(
+                              Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                              Uri.parse("package:$packageName")
+                          )
+                          startActivityForResult(intent, 100)
+                      } else {
+                          startOverlayService()
+                      }
+                  } else {
+                      startOverlayService()
+                  }
+              }
+
+              private fun startOverlayService() {
+                  val intent = Intent(this, OverlayService::class.java)
+                  startService(intent)
+                  Toast.makeText(this, "Widget flotante activado", Toast.LENGTH_SHORT).show()
+              }
+
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == 100) {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                          startOverlayService()
+                      } else {
+                          Toast.makeText(this, "Permiso de superposición denegado", Toast.LENGTH_SHORT).show()
+                      }
+                  }
               }
           }
           EOF
